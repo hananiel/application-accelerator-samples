@@ -1,0 +1,123 @@
+﻿---
+accelerator:
+  options:
+  - name: applicationName
+    label: Application Name
+    description: Application Name
+    inputType: text
+    defaultValue: CustomerProfileAPI
+    required: true
+  - name: databaseType
+    inputType: select
+    label: Database to use
+    choices:
+      - value: "postgres"
+        text: PostgreSQL
+    defaultValue: "postgres"
+    required: true
+  - name: exposeOpenAPIEndpoint
+    label: Expose OpenAPI endpoint?
+    dataType: boolean
+    defaultValue: false
+  - name: apiSystem
+    label: System API Belongs To
+    inputType: text
+    required: true
+    defaultValue: "profile-management"
+    dependsOn:
+      name: exposeOpenAPIEndpoint
+  - name: apiOwner
+    label: Owner of API
+    inputType: text
+    required: true
+    defaultValue: "customer-relations-department"
+    dependsOn:
+      name: exposeOpenAPIEndpoint
+  - name: apiDescription
+    label: API Description
+    inputType: text
+    required: true
+    defaultValue: "Manage customer profiles"
+    dependsOn:
+      name: exposeOpenAPIEndpoint
+
+  imports:
+  - name: tap-workload
+  - name: steeltoe-postgresql
+    expose:
+      - name: databaseName
+        dependsOn:
+          name: databaseType
+          value: postgres
+
+engine:
+  let:
+  - name: compilerSafeAppName
+    expression: '#applicationName.replace("-", "_")'
+
+  chain:
+  - merge:
+    - include: [ "**" ]
+      exclude: [ "*.csproj", "config/workload-basic.yaml", "config/workload-api-provider.yaml" ]
+    - include: [ "*.csproj", "*.sln" ]
+      chain:
+      - type: RewritePath
+        regex: "RestService(.*)"
+        rewriteTo: "#applicationName + #g1"
+    - merge:
+      - include: [ "config/workload-api-provider.yaml" ]
+        condition: "#exposeOpenAPIEndpoint"
+        chain:
+          - type: ReplaceText
+            condition: "#exposeOpenAPIEndpoint"
+            substitutions:
+              - text: "SYSTEM_VAL"
+                with: "#apiSystem"
+              - text: "OWNER_VAL"
+                with: "#apiOwner"
+              - text: "DESCRIPTION_VAL"
+                with: "#apiDescription"
+          - type: RewritePath
+            rewriteTo: "'config/workload.yaml'"
+      - include: [ "config/workload-basic.yaml" ]
+        condition: "!#exposeOpenAPIEndpoint"
+        chain:
+          - type: RewritePath
+            rewriteTo: "'config/workload.yaml'"
+    - include: [ "README.md", "config/**", "catalog/**", "Tiltfile" ]
+      exclude: [ "config/workload-basic.yaml", "config/workload-api-provider.yaml" ]
+      chain:
+      - type: ReplaceText
+        substitutions:
+        - text: csharp-rest-service
+          with: "#artifactId.toLowerCase()"
+        - text: RestService
+          with: "#applicationName"
+      - merge:
+        - type: InvokeFragment
+          reference: tap-workload
+        - include: [ "**" ]
+        onConflict: UseFirst
+    - include: [ "**/*.cs" ]
+      chain:
+      - type: ReplaceText
+        substitutions:
+          - text: RestService
+            with: "#compilerSafeAppName"
+
+  - condition: "#databaseType == 'postgres'"
+    merge:
+      - type: InvokeFragment
+        reference: steeltoe-postgresql
+      - include: [ "**" ]
+    onConflict: UseFirst
+
+  - merge:
+      - type: InvokeFragment
+        reference: tap-workload
+      - include: [ "**" ]
+    onConflict: UseFirst
+
+  - type: Provenance
+
+

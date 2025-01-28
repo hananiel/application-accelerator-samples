@@ -1,7 +1,6 @@
 package com.java.example.tanzu.wherefordinner.resources;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.stream.Collectors;
@@ -12,11 +11,14 @@ import org.springframework.util.CollectionUtils;
 
 import com.java.example.tanzu.wherefordinner.config.StaticDiningAvailability;
 import com.java.example.tanzu.wherefordinner.model.Availability;
+import com.java.example.tanzu.wherefordinner.model.AvailabilityWindow;
 import com.java.example.tanzu.wherefordinner.model.SearchCriteria;
 
+import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 
 @Component
+@Slf4j
 public class LocalRandomSearcher
 {
 
@@ -41,9 +43,11 @@ public class LocalRandomSearcher
 		var rn = new Random();
 		var numDinings = 0;
 		
-		if (crit.getDiningNames() != null && !crit.getDiningNames().isEmpty())
+		log.info("Generating random dining options.");
+		
+		if (crit.diningNames() != null && !crit.diningNames().isEmpty())
 		{
-			var dinNames = crit.getDiningNames();
+			var dinNames = crit.diningNames();
 			
 			var filteredDining = staticDining.getEstablishments().stream()
 			.filter(estab -> isEstablishmentInList(estab.getDiningName(), dinNames))
@@ -77,6 +81,8 @@ public class LocalRandomSearcher
 			dinings.add(bucket.remove(bucketEntryIdx));
 		}
 
+		log.info("Generated {} random dining options.", dinings.size());
+		
 		return Flux.fromIterable(dinings);
 	}
 	
@@ -87,7 +93,7 @@ public class LocalRandomSearcher
 		// the chance that no reservations are available will be 20%
 		final var isTimesAvailable = (rn.nextInt(10) > 1);
 		
-		final var avail = new Availability();
+		final List<AvailabilityWindow> availWindows = new ArrayList<>();
 		
 		if (isTimesAvailable)
 		{
@@ -95,25 +101,25 @@ public class LocalRandomSearcher
 			final var times = new long[2];
 			
 			// select a random start time... the start time should not be less than an hour before the end time
-			var windowSize = crit.getEndTime() - crit.getStartTime();
+			var windowSize = crit.endTime() - crit.startTime();
 			
 			// if the start and stop times are less than a 1 hour window, then just select
 			// the start and end times as the window
 			if (windowSize <= HOUR)
 			{
-				times[0] =  crit.getStartTime();
-				times[1] = crit.getEndTime();
+				times[0] =  crit.startTime();
+				times[1] = crit.endTime();
 			}
 			else
 			{
 				// find a random start time
-				var max = crit.getEndTime() - HOUR;
-				var min = crit.getStartTime();
+				var max = crit.endTime() - HOUR;
+				var min = crit.startTime();
 				var startTime = min + (long) (Math.random() * (max - min));
 				startTime = roundToHalfHour(startTime - HALF_HOUR);
 				
 				// find a random end time time
-				max = crit.getEndTime();
+				max = crit.endTime();
 				min = startTime + HALF_HOUR;
 				var endTime = min + (long) (Math.random() * (max - min));
 				endTime = roundToHalfHour(endTime - HALF_HOUR);
@@ -122,17 +128,11 @@ public class LocalRandomSearcher
 				times[1] = endTime;	
 			}
 			
-			avail.setAvailabilityWindows(Collections.singletonList(new Availability.AvailabilityWindow(times[0], times[1])));
+			availWindows.add(new AvailabilityWindow(times[0], times[1]));
 		}
 		
-		avail.setSearchName(crit.getName());
-		avail.setDiningName(dining.getDiningName());
-		avail.setAddress(dining.getAddress());
-		avail.setLocality(dining.getLocality());
-		avail.setPhoneNumber(dining.getPhoneNumber());
-		avail.setPostalCode(dining.getPostalCode());
-		avail.setRegion(dining.getRegion());
-		avail.setReservationURL(dining.getReservationURL());
+		final var avail = new Availability(crit.name(), dining.getDiningName(), dining.getAddress(), dining.getLocality(), dining.getRegion(), 
+				dining.getPostalCode(), dining.getPhoneNumber(), dining.getReservationURL(), "", availWindows);
 		
 		return avail;
 	}

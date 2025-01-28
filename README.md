@@ -1,5 +1,7 @@
 # application-accelerator-samples
 
+> **NOTE:** the Application Accelerator samples for Tanzu Application Platform are available in the [tap-og](https://github.com/vmware-tanzu/application-accelerator-samples/tree/tap-og) branch.
+
 ## Overview
 
 Application Accelerators for VMware Tanzu helps you bootstrap developing your applications and deploying them in a discoverable and repeatable way.
@@ -27,6 +29,26 @@ To use these Application Accelerators samples you need to have access to an inst
 ### Build & Run
 
 Each Accelerator is provided in a separate directory and is its own self contained project with a README file descibing how to build it.
+
+### Testing
+
+The test suite runs in GitHub actions om each push.
+
+You can run the tests locally by setting the following environment variables:
+
+```sh
+export TANZU_CLI=tanzu
+export CLI_PLUGIN=acc
+export TEST_PATTERN=tanzu-java-web-app-*  # set this to a pattern that matches the tests you want to run
+export TEST_WORKSPACE=$PWD
+export ACC_SERVER_URL=<URL>  # this is the URL for Tanzu Portal (TAP-GUI) in your view cluster
+```
+
+Then run the tests using:
+
+```sh
+./run-test-local.sh
+```
 
 ## Documentation
 

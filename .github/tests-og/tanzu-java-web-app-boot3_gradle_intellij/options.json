@@ -1,0 +1,7 @@
+{
+    "projectName": "was-renamed-to-this",
+    "nativeBuild": false,
+    "javaVersion": "17",
+    "buildTool": "gradle",
+    "includeBuildToolWrapper": true
+}

@@ -9,13 +9,21 @@ server:
   forward-headers-strategy: framework
   
 spring: 
+  application:
+    name: where-for-dinner-availability
+
+  config:
+    import: 'optional:configserver:'
+
   sql.init.mode: ALWAYS
   sql.init.platform: h2
+  sql.init.continue-on-error: true 
   
   cloud: 
+    function:
+      definition: processAvailability;processDeletedSearch
     stream:
-      function:
-        definition: processAvailability
+      defaultBinder: rabbit
       bindings: 
         processAvailability-in-0: 
           destination: where-for-dinner-search-result
@@ -23,8 +31,23 @@ spring:
           consumer: 
             maxAttempts: 4
             backOffInitialInterval: 15000
-            backOffMaxInterval: 60000 
-            
+        processDeletedSearch-in-0: 
+          destination: where-for-dinner-search-deletion
+          group: where-for-dinner-search-result-group
+          consumer: 
+            maxAttempts: 4
+            backOffInitialInterval: 15000
+            backOffMaxInterval: 60000             
+
+    refresh.enabled: false
+
+  r2dbc: 
+    url: r2dbc:h2:mem:///testdb
+
+eureka:
+  client:
+    enabled: false
+        
 springdoc:
   packages-to-scan: com.java.example.tanzu.wherefordinner.resources
   show-spring-cloud-functions: false
@@ -46,3 +69,57 @@ spring:
   config.activate.on-profile: postgres
   
   sql.init.platform: postgresql
+  
+---
+
+spring:
+  config.activate.on-profile: kafka
+  
+  cloud: 
+    stream:
+      defaultBinder: kafka
+
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+
+management:
+  health:
+    rabbit:
+      enabled: false
+
+---
+
+spring:
+  config.activate.on-profile: kinesis
+  
+  cloud: 
+    stream:
+      defaultBinder: kinesis 
+      
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+
+management:
+  health:
+    rabbit:
+      enabled: false     
+
+---
+
+spring:
+  config.activate.on-profile: secure
+  
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: http://testservice.placeholder.com/test
+
+---
+
+spring:
+  config.activate.on-profile: eureka
+  
+eureka:
+  client:
+    enabled: true

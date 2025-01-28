@@ -1,0 +1,113 @@
+engine {
+
+  applyTo("build.gradle" || "README.md" || "**/*.yaml" || "**/*.yml" || "**/*.java") {
+    TextPreprocessor()
+  }
+
+  if (#deploymentType == 'none') {
+    select(!"deploy/**")
+  } else {
+    if (#deploymentType == 'tpfork8s') {
+      applyTo("deploy/tpfork8s/tanzu.yml") {
+        ReplaceSnippet(text: "spring-music", with: #artifactId.toLowerCase())
+        RewritePath(rewriteTo: #filename)
+      }
+      applyTo("deploy/tpfork8s/.tanzu/config/spring-music.yml") {
+        ReplaceText({{text: "spring-music", with: #artifactId.toLowerCase()}})
+        RewritePath(rewriteTo: '.tanzu/config/' + #artifactId.toLowerCase() + '.yml')
+      }
+      applyTo("deploy/tpfork8s/.tanzu/config/httproute-spring-music.yml") {
+        ReplaceText({{text: "spring-music", with: #artifactId.toLowerCase()}})
+        RewritePath(rewriteTo: '.tanzu/config/httproute-' + #artifactId.toLowerCase() + '.yml')
+      }
+      if ((#persistenceType == 'jpa' && #databaseType != 'h2') || #persistenceType == 'mongodb' || #persistenceType == 'redis') {
+        let id = T(java.util.UUID).randomUUID().toString().replace("-","").substring(2,8) in {
+          applyTo("deploy/tpfork8s/.tanzu/config/service-binding-music.yml") {
+            ReplaceText({{text: "spring-music", with: #artifactId.toLowerCase()}})
+            OpenRewriteRecipe('org.openrewrite.yaml.ChangeValue', { oldKeyPath: "$.metadata.name", value: 'music-' + #id.toString() })
+            RewritePath(rewriteTo: '.tanzu/config/service-binding-music.yml')
+          }
+        }
+      }
+      if (#persistenceType == 'jpa' && #databaseType == 'mysql') {
+        applyTo("deploy/tpfork8s/.tanzu/config/mysql-instance-music.yml") {
+          ReplaceText({{text: "spring-music", with: #artifactId.toLowerCase()}})
+          RewritePath(rewriteTo: '.tanzu/config/mysql-instance-music.yml')
+        }
+      }
+      if (#persistenceType == 'jpa' && #databaseType == 'postgres') {
+        applyTo("deploy/tpfork8s/.tanzu/config/postgresql-instance-music.yml") {
+          ReplaceText({{text: "spring-music", with: #artifactId.toLowerCase()}})
+          RewritePath(rewriteTo: '.tanzu/config/postgresql-instance-music.yml')
+        }
+      }
+      if (#persistenceType == 'mongodb') {
+        applyTo("deploy/tpfork8s/.tanzu/config/mongodb-instance-music.yml") {
+          ReplaceText({{text: "spring-music", with: #artifactId.toLowerCase()}})
+          RewritePath(rewriteTo: '.tanzu/config/mongodb-instance-music.yml')
+        }
+      }
+      if (#persistenceType == 'redis') {
+        applyTo("deploy/tpfork8s/.tanzu/config/redis-instance-music.yml") {
+          ReplaceText({{text: "spring-music", with: #artifactId.toLowerCase()}})
+          RewritePath(rewriteTo: '.tanzu/config/redis-instance-music.yml')
+        }
+      }
+      select(!"deploy/**")
+    }
+  }
+
+  if (#persistenceType == 'jpa') {
+    select(
+      !"src/main/java/com/example/music/config/data/**" &&
+      !"src/main/java/com/example/music/domain/RandomIdGenerator.java" &&
+      !"src/main/java/com/example/music/repositories/mongodb/**" &&
+      !"src/main/java/com/example/music/repositories/redis/**")
+  }
+  if (#persistenceType == 'mongodb') {
+    select(
+      !"src/main/java/com/example/music/config/data/**" &&
+      !"src/main/java/com/example/music/domain/RandomIdGenerator.java" &&
+      !"src/main/java/com/example/music/repositories/jpa/**" &&
+      !"src/main/java/com/example/music/repositories/redis/**")
+  }
+  if (#persistenceType == 'redis') {
+     select(
+       !"src/main/java/com/example/music/repositories/mongodb/**" &&
+       !"src/main/java/com/example/music/repositories/jpa/**")
+  }
+
+  // Update the artifact name as needed
+  applyTo("README.md" || "settings.gradle") {
+    ReplaceSnippet(text: "spring-music", with: #artifactId.toLowerCase())
+  }
+
+  applyTo("README.md") {
+    ReplaceSnippet(text: "JAVA_VERSION", with: #javaVersion)
+  }
+
+  // Update the configuration id
+  let uuid = T(java.util.UUID).randomUUID() in {
+    applyTo("tanzu.yml") {
+      OpenRewriteRecipe('org.openrewrite.yaml.ChangeValue', { oldKeyPath: "$.configuration.id", value: 'config-' + #uuid.toString() })
+    }
+  }
+
+  {
+    select("**")
+    // Update the java version
+    + InvokeFragment("java-version")
+  }
+  UniquePath(strategy: UseLast)
+
+  {
+    select("**")
+    // Add the build wrapper
+    + InvokeFragment("build-wrapper-gradle")
+  }
+  UniquePath(strategy: UseLast)
+
+  // Create the provenance file
+  Provenance()
+
+}

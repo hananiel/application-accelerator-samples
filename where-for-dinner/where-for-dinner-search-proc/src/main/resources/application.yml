@@ -4,10 +4,17 @@ management:
       enabled: false
 
 spring: 
+  application:
+    name: where-for-dinner-search-proc
+
+  config:
+    import: 'optional:configserver:'
+
   cloud: 
+    function:
+      definition: processSearch
     stream:
-      function:
-        definition: processSearch
+      defaultBinder: rabbit
       bindings: 
         processSearch-in-0: 
           destination: where-for-dinner-search-criteria
@@ -19,9 +26,20 @@ spring:
         processSearch-out-0: 
           destination: where-for-dinner-search-result
 
+    refresh.enabled: false
+    loadbalancer.enabled: false
+
 server.port: 8083
+
+eureka:
+  client:
+    enabled: false
       
 where-for-dinner:
+
+  crawler:
+    service:
+      identifier: 'http://where-for-dinner-crawler:8080'
 
   randomsearcher:
     establishments:
@@ -114,8 +132,65 @@ where-for-dinner:
 
 spring:
   config.activate.on-profile: redis
+
+  data:
+    redis:
+      ssl:
+        enabled: false
+      port: 6379
   
 management:
   health:
     redis:
       enabled: true
+    
+---
+
+spring:
+  config.activate.on-profile: kafka
+  
+  cloud: 
+    stream:
+      defaultBinder: kafka
+
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+
+management:
+  health:
+    rabbit:
+      enabled: false
+
+---
+
+spring:
+  config.activate.on-profile: kinesis
+  
+  cloud: 
+    stream:
+      defaultBinder: kinesis
+      
+  autoconfigure:
+    exclude: org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+
+management:
+  health:
+    rabbit:
+      enabled: false
+      
+---
+
+spring:
+  config.activate.on-profile: eureka
+  
+  cloud.loadbalancer.enabled: true
+
+where-for-dinner:
+
+  crawler:
+    service:
+      identifier: 'http://where-for-dinner-crawler'  
+  
+eureka:
+  client:
+    enabled: true

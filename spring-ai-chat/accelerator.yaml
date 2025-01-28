@@ -1,0 +1,56 @@
+accelerator:
+  options:
+    - name: artifactId
+      inputType: text
+      defaultValue: "spring-ai-chat"
+      label: Module artifact name
+      required: true
+    - name: groupId
+      inputType: text
+      defaultValue: "com.example"
+      label: Module group name
+      required: true
+    - name: packageName
+      inputType: text
+      defaultValue: "com.example.aichat"
+      label: Module root package
+      required: true
+    - name: aiService
+      label: "AI Service"
+      inputType: select
+      dataType: string
+      display: true
+      required: true
+      defaultValue: "openAI"
+      choices:
+        - text: Azure AI Service
+          value: "azureOpenAI"
+        - text: Open AI
+          value: "openAI"
+    - name: azureAIEndpoint
+      label: Azure OpenAI Enpoint
+      description: The Azure AI endpoint URL
+      inputType: text
+      dataType: string
+      required: true
+      dependsOn: 
+        name: aiService
+        value: azureOpenAI
+    - name: openaiModel
+      inputType: text
+      defaultValue: "gpt-3.5-turbo"
+      label: AI Model
+      required: true
+    - name: vectorStoreType
+      inputType: select
+      defaultValue: simple
+      label: Vector Store
+      required: true
+      choices:
+        - value: simple
+          text: Simple
+        - value: pgvector
+          text: PostgreSQL (pgvector)
+  imports:
+    - name: build-wrapper-maven
+

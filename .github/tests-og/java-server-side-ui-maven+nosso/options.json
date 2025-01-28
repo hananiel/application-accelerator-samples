@@ -1,0 +1,10 @@
+{
+  "buildTool": "maven",
+  "includeAppSsoIntegration": false,
+
+  "artifactId": "server-side-ui-starter",
+  "groupId": "com.example",
+  "packageName": "com.example.serversideuistarter",
+  "javaVersion": "17",
+  "liveUpdateIDESupport": true
+}

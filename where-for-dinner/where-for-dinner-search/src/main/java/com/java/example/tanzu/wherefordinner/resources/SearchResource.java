@@ -7,6 +7,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.transaction.ReactiveTransactionManager;
+import org.springframework.transaction.reactive.TransactionalOperator;
+import org.springframework.transaction.support.DefaultTransactionDefinition;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -33,10 +36,12 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.util.context.Context;
 
 @OpenAPIDefinition(
         info = @Info(
                 title = "Where for Dinner Search Service",
+                version = "0.0.1",
         		description = "Core Where for Dinner service for submitting searches and parameters"),
         tags = @Tag(
                 name = "Search Submission REST API",
@@ -49,11 +54,15 @@ public class SearchResource
 {
 	protected static final String UNKNOWN_REQUEST_SUBJECT_ID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 	
-	protected static final String STREAM_BRIDGE_OUTPUT_CHANNLE = "submittedSearches-out-0";
+	protected static final String STREAM_BRIDGE_SEARCH_OUTPUT_CHANNLE = "submittedSearches-out-0";
+	
+	protected static final String STREAM_BRIDGE_DELETE_SEARCH_OUTPUT_CHANNLE = "deletedSearches-out-0";
 	
 	protected SearchRepository searchRepo;
 	
 	protected StreamBridge streamBridge;
+	
+	protected ReactiveTransactionManager txMgr;
 	
 	@Autowired
 	public void setSearchRepo(SearchRepository searchRepo)
@@ -65,6 +74,12 @@ public class SearchResource
 	public void setStreamBridge(StreamBridge streamBridge)
 	{
 		this.streamBridge = streamBridge;
+	}
+	
+	@Autowired
+	public void setTxMgr(ReactiveTransactionManager txMgr)
+	{
+		this.txMgr = txMgr;
 	}
 	
 	protected String getPrincipalName(Principal oauth2User)
@@ -86,12 +101,16 @@ public class SearchResource
                 description = "Returns all searches for a user or an empty list if no search are found."
         )
     })
+	
 	@GetMapping
 	public Flux<Search> getAllSearches( Principal oauth2User)
 	{
+		final var transactionalOperator = createTransactionOperator(true);
+		
 		final var reqSub = getPrincipalName(oauth2User);
 		
 		return searchRepo.findByRequestSubject(reqSub)
+		   .as(transactionalOperator::transactional).contextWrite(Context.of("TYPE", "RO"))
     	   .onErrorResume(e -> { 
     	    	log.error("Error getting searches.", e);
     	    	return Mono.error(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR));
@@ -117,10 +136,13 @@ public class SearchResource
                 content = @Content(schema = @Schema(hidden = true))
         )
     })
+	
 	@PutMapping(consumes = MediaType.APPLICATION_JSON_VALUE)  
 	@ResponseStatus(HttpStatus.CREATED)
 	public Mono<Search> addSearch(@RequestBody Search search, Principal oauth2User)
 	{
+		final var transactionalOperator = createTransactionOperator(false);
+		
 		log.info("Adding new search {} in zip code {} and radius {}", search.getName(), search.getPostalCode(), search.getRadius());
 	
 		final var reqSub = getPrincipalName(oauth2User);
@@ -137,6 +159,7 @@ public class SearchResource
 		search.setRequestSubject(reqSub);
 		
 		return searchRepo.findByNameIgnoreCaseAndRequestSubject(search.getName(), reqSub)
+		.as(transactionalOperator::transactional).contextWrite(Context.of("TYPE", "RW"))
 		.switchIfEmpty(Mono.just(new Search()))
 		.flatMap(foundSearch -> 
 		{
@@ -147,7 +170,8 @@ public class SearchResource
 			}
 				
 			return searchRepo.save(search)
-			           .doOnSuccess(addedSearch -> streamBridge.send(STREAM_BRIDGE_OUTPUT_CHANNLE, addedSearch))
+					   .as(transactionalOperator::transactional).contextWrite(Context.of("TYPE", "RW"))
+			           .doOnSuccess(addedSearch -> streamBridge.send(STREAM_BRIDGE_SEARCH_OUTPUT_CHANNLE, addedSearch))
 			    	   .onErrorResume(e -> { 
 			    	    	log.error("Error adding search.", e);
 			    	    	return Mono.error(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR));
@@ -166,14 +190,45 @@ public class SearchResource
         )
     })
 	@DeleteMapping("{id}") 
-	public Mono<Void> deleteSearch(@PathVariable("id") Long id)
+	public Mono<Void> deleteSearch(@PathVariable("id") Long id, Principal oauth2User)
 	{
 		log.info("Deleting search id {}", id);
 		
-		return searchRepo.deleteById(id)
-    	   .onErrorResume(e -> { 
-    	    	log.error("Error deleting search.", e);
-    	    	return Mono.error(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR));
-    	   });
+		final var transactionalOperator = createTransactionOperator(false);
+		
+		final var reqSub = getPrincipalName(oauth2User);
+		
+		return searchRepo.findById(id)
+			.as(transactionalOperator::transactional).contextWrite(Context.of("TYPE", "RW"))
+			.switchIfEmpty(Mono.just(new Search()))
+			.flatMap(foundSearch -> 
+			{
+				if (StringUtils.hasText(foundSearch.getName()))
+				{
+					if (foundSearch.getRequestSubject().compareTo(reqSub) != 0)
+					{
+		    	    	log.error("Cannot delete search id{} as it is not owned by request subject {}.",id, reqSub);
+		    	    	return Mono.error(new ResponseStatusException(HttpStatus.FORBIDDEN));
+					}
+					
+					return searchRepo.deleteById(id)
+						.as(transactionalOperator::transactional).contextWrite(Context.of("TYPE", "RW"))
+						.doOnSuccess(addedSearch -> streamBridge.send(STREAM_BRIDGE_DELETE_SEARCH_OUTPUT_CHANNLE, foundSearch))
+			    	    .onErrorResume(e -> { 
+			    	    	log.error("Error deleting search.", e);
+			    	    	return Mono.error(new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR));
+			    	    });
+				}
+				
+				return Mono.empty();
+			});
+
+	}
+	
+	protected TransactionalOperator createTransactionOperator(boolean readOnly)
+	{
+		final var txDef = new DefaultTransactionDefinition();
+		txDef.setReadOnly(readOnly);
+		return TransactionalOperator.create(txMgr, txDef);
 	}
 }
